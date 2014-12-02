@@ -3,11 +3,13 @@ CONFIG += console
 CONFIG -= app_bundle
 CONFIG -= qt
 
-SOURCES += main.cpp
+SOURCES += main.cpp \
+    testorientedgraph.cpp
 
 include(deployment.pri)
 qtcAddDeployment()
 
 HEADERS += \
-    orientedgraph.h
+    orientedgraph.h \
+    testorientedgraph.h
 
