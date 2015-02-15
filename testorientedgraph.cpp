@@ -29,20 +29,19 @@ void TestOrientedGraph::run() {
 
 //-----------------------------------------------------------------------------
 bool TestOrientedGraph::testGraph1() {
-    OrientedGraph<>* graph = _s_createTestGraph1();
+//    OrientedGraph<>* graph = _s_createTestGraph1();
 
-    OrientedGraph<>::PathDescriptor radius = graph->findGraphRadius();
+//    OrientedGraph<>::PathDescriptor radius = graph->findGraphRadius();
 
-    /* В соответствии с произведенными вычислениями полученным радиусом
-     * должен являться путь 3->4 с суммарным весом 16. */
-    bool is_radius_start_vertex_3 = ( 3 == radius.vertexStartId() );
-    bool is_radius_end_vertex_4 = ( 4 == radius.vertexEndId() );
-    bool is_radius_total_weight_16 = ( 16 == radius.weight );
+//    /* В соответствии с произведенными вычислениями полученным радиусом
+//     * должен являться путь 3->4 с суммарным весом 16. */
+//    bool is_radius_start_vertex_3 = ( 3 == radius.vertexStartId() );
+//    bool is_radius_end_vertex_4 = ( 4 == radius.vertexEndId() );
+//    bool is_radius_total_weight_16 = ( 16 == radius.weight );
 
-
-    return (is_radius_start_vertex_3 &&
-            is_radius_end_vertex_4 &&
-            is_radius_total_weight_16);
+//    return (is_radius_start_vertex_3 &&
+//            is_radius_end_vertex_4 &&
+//            is_radius_total_weight_16);
 
 
     return false;
@@ -50,22 +49,25 @@ bool TestOrientedGraph::testGraph1() {
 
 //-----------------------------------------------------------------------------
 bool TestOrientedGraph::testGraph2() {
-    OrientedGraph<>* graph2 = _s_createTestGraph2();
-    OrientedGraph<>::PathDescriptor radius = graph2->findGraphRadius();
+//    OrientedGraph<>* graph2 = _s_createTestGraph2();
+//    OrientedGraph<>::PathDescriptor radius = graph2->findGraphRadius();
 
-    /* В соответствии с произведенными вычислениями полученным радиусом
-     * должен являться путь 1->2->3->6->5->4 с суммарным весом 53 */
-    bool is_all_radius_vertexes_correct = (
-                radius.path_vertexes[0] == 1 &&
-                radius.path_vertexes[1] == 2 &&
-                radius.path_vertexes[2] == 5 &&
-                radius.path_vertexes[3] == 4
-            );
+//    /* В соответствии с произведенными вычислениями полученным радиусом
+//     * должен являться путь 1->2->3->6->5->4 с суммарным весом 53 */
+//    bool is_all_radius_vertexes_correct = (
+//                radius.path_vertexes[0] == 1 &&
+//                radius.path_vertexes[1] == 2 &&
+//                radius.path_vertexes[2] == 5 &&
+//                radius.path_vertexes[3] == 4
+//            );
 
-    bool is_radius_weight_correct = (53 == radius.weight);
+//    bool is_radius_weight_correct = (53 == radius.weight);
 
 
-    return is_all_radius_vertexes_correct && is_radius_weight_correct;
+//    return is_all_radius_vertexes_correct && is_radius_weight_correct;
+
+
+    return false;
 }
 
 

@@ -4,8 +4,18 @@
 #include <list>
 #include <vector>
 #include <map>
+#include <stack>
 #include <limits.h>
 #include <algorithm>
+#include <iostream>
+#include <iomanip>
+
+#include <windows.h>
+
+
+
+#define CLEAR_SCREEN() system("cls")
+#define PAUSE() system("pause")
 
 template <class TData = int>
 class OrientedGraph
@@ -17,10 +27,16 @@ class OrientedGraph
         ErrorInternal = -3
     };
 
-
+public:
     typedef unsigned int VertexID;
     typedef std::vector<VertexID> VertexesIdsVector;
+    typedef std::list<VertexID> VertexesList;
 
+    typedef unsigned int EdgeWeight;
+    typedef EdgeWeight PathWeight;
+
+
+private:
     /** Класс, представляющий вершину в графе */
     class _GraphVertex {
     public:
@@ -44,13 +60,14 @@ class OrientedGraph
         VertexID _vtx_id;
     };
 
+
     typedef std::list<_GraphVertex*> VertexesPtrList;
     typedef std::map<int, _GraphVertex*> MapVertexesWithIds;
     typedef std::multimap < _GraphVertex* /* vtx_from */ , _GraphVertex* /* vtx_to */ > MultiMapIncidentVertexes;
     typedef std::pair < _GraphVertex*, _GraphVertex* > PairOfVertexes;
 
     //=========================================================================
-    typedef unsigned int EdgeWeight;
+
 
     /** Класс, представляющий ребро в графе */
     class _GraphEdge {
@@ -104,7 +121,7 @@ class OrientedGraph
     typedef std::list<_GraphEdge*> EdgesPtrList;
 
     //=========================================================================
-    typedef EdgeWeight PathWeight;
+
 
     /** Структура, описывающая пути в графе */
     typedef struct __GraphPath {
@@ -184,25 +201,68 @@ public:
         }
 
         //---------------------------------------------------------------------
+        void appendVertex(VertexID vid) {
+            path_vertexes.push_back(vid);
+        }
+
         //---------------------------------------------------------------------
+        void prependVertex(VertexID vid) {
+            path_vertexes.push_front(vid);
+        }
+
         //---------------------------------------------------------------------
+        void print() const {
+            VertexesList::const_iterator iter = path_vertexes.begin();
+            std::cout << "[" << (*iter) << "]";
+            ++iter;
+            for (; path_vertexes.end() != iter; ++iter) {
+                std::cout << "->[" << (*iter) << "]";
+            }
+        }
+
         //---------------------------------------------------------------------
 
-        VertexesIdsVector path_vertexes;
+
+        VertexesList path_vertexes;
 
         /** Вес всего пути */
         PathWeight weight;
     } PathDescriptor;
     //=========================================================================
 
+    //-------------------------------------------------------------------------
     // Открытые методы класса :
-    OrientedGraph(int vtx_count)
+    OrientedGraph(int vtx_count = 0)
         : _next_vacant_vtx_id(1)
     {
         // Инициализировать запрошенное число вершин графа
         for (int i = 0; i < vtx_count; ++i) {
             createVertex();
         }
+    }
+
+    //-------------------------------------------------------------------------
+    ~OrientedGraph() {
+        /* Удалить объекты-вершины */
+        typename MapVertexesWithIds::iterator iter_vertexes = _graph_vertexes.begin();
+        for (; _graph_vertexes.end() != iter_vertexes; ++iter_vertexes) {
+            _GraphVertex* next_vertex = (*iter_vertexes).second;
+            delete next_vertex;
+        }
+
+
+        /* Удалить объекты-ребра */
+        typename MapVertexesEdges::iterator iter_edges = _graph_edges.begin();
+        for (; _graph_edges.end() != iter_edges; ++iter_edges) {
+            _GraphEdge* next_edge = (*iter_edges).second;
+            delete next_edge;
+        }
+    }
+
+    //-------------------------------------------------------------------------
+    /** Возвращает TRUE, если граф не содержит ни одной вершины */
+    bool isEmpty() const {
+        return _graph_vertexes.empty();
     }
 
     //-------------------------------------------------------------------------
@@ -248,12 +308,50 @@ public:
     }
 
     //-------------------------------------------------------------------------
+    /** Возвращает список идентификаторов всех вершин графа */
+    VertexesList vertexes() const {
+        VertexesList vtxs_list;
+        typename MapVertexesWithIds::const_iterator iter = _graph_vertexes.begin();
+        for (; _graph_vertexes.end() != iter; ++iter) {
+            VertexID vid = (*iter).first;
+            vtxs_list.push_back( vid );
+        }
+
+
+        return vtxs_list;
+    }
+
+    //-------------------------------------------------------------------------
     /** Возвращает количество вершин в графе */
-    int vertexesCount() const;
+    int vertexesCount() const {
+        return vertexes().size();
+    }
+
+    //-------------------------------------------------------------------------
+    /** Возвращает список вершин, в которые идут ребра из заданной вершины */
+    VertexesList vertexOutSiblings(VertexID vid) const {
+        VertexesList vtxs_list;
+        _GraphVertex *vtx = _findVertex(vid);
+        if (vtx) {
+            /* Пройти по всем ребрам, выходящим из заданной вершины */
+            EdgesPtrList edges = _outgoingEdges(vtx);
+            typename EdgesPtrList::iterator iter_edges = edges.begin();
+            for (; edges.end() != iter_edges; ++iter_edges) {
+                _GraphEdge* next_edge = (*iter_edges);
+                /* Запомнить ID вершины, в которую входит ребро */
+                vtxs_list.push_back( next_edge->vertexEnd()->id() );
+            }
+        }
+
+
+        return vtxs_list;
+    }
 
     //-------------------------------------------------------------------------
     /** Возвращает количество ребер в графе */
-    int edgesCount() const;
+    int edgesCount() const {
+        return _graph_edges.size();
+    }
 
     //-------------------------------------------------------------------------
     /** Создает направленное ребро в графе, между двумя указанными вершинами
@@ -299,20 +397,32 @@ public:
                     _graph_edges.find( PairOfVertexes(vtx_start, vtx_end) );
             // Если ребро найдено
             if (_graph_edges.end() != iter_edges ) {
-                _GraphEdge* edge = (*iter_edges);
+                _GraphEdge* edge = (*iter_edges).second;
                 // Удалить ребро из графа
                 _graph_edges.erase(iter_edges);
 
-                /* Удалить соответствующую запись из списка инцидентных вершин:
+                /* Удалить соответствующую запись из списка инцидентных вершин.
                  *
-                 * 1. получить список вершин, инцидентных вершине vtx_start */
-                VertexesPtrList vtxs_incident_list = _graph_incident_vertexes[vtx_start];
-                /* 2. найти в этом списке вершину vtx_end, в которую
-                 * входит удаляемое ребро, и удалить ее из списка */
-                typename VertexesPtrList::iterator iter_incident_vtxs =
-                        std::find(vtxs_incident_list.begin(),
-                                  vtxs_incident_list.end(),
-                                  edge->vertexEnd());
+                 * В std::multimap все элементы являются парами std::pair,
+                 * упорядоченными по ключу. Найдем в этом множестве первую и
+                 * последнюю записи, ключом в которых является вершина start,
+                 * тогда все записи между ними относятся к инцидентным ей вершинам.
+                 * Найдем среди них запись, в которой конечная вершина принадлежит
+                 * удаляемому ребру и удалим эту запись */
+                std::pair<
+                        typename MultiMapIncidentVertexes::iterator,
+                        typename MultiMapIncidentVertexes::iterator
+                        > pair_iters_vtxs_range = _graph_incident_vertexes.equal_range(vtx_start);
+                typename MultiMapIncidentVertexes::iterator iter_lookup_vtx_end = pair_iters_vtxs_range.first;
+                for ( ; iter_lookup_vtx_end != pair_iters_vtxs_range.second &&
+                      (*iter_lookup_vtx_end).second != vtx_end;
+                      ++iter_lookup_vtx_end )
+                { }
+
+                // Если запись успешно найдена, удалить ее
+                if ( iter_lookup_vtx_end != pair_iters_vtxs_range.second ) {
+                    _graph_incident_vertexes.erase(iter_lookup_vtx_end);
+                }
 
                 // Освободить память
                 delete edge;
@@ -338,6 +448,24 @@ public:
         return ( _findEdge(vtx_id_start, vtx_id_end) != NULL );
     }
 
+    //-------------------------------------------------------------------------
+    /** Возвращает вес ребра между указанными вершинами, если оно существует, иначе вернет 0 */
+    EdgeWeight edgeWeight(VertexID vertex_from, VertexID vertex_to) const {
+        EdgeWeight weight = 0;
+        _GraphVertex* vtx_start = _findVertex(vertex_from);
+        _GraphVertex* vtx_end = _findVertex(vertex_to);
+        if (vtx_start && vtx_end) {
+            typename MapVertexesEdges::const_iterator iter_edge_lookup =
+                    _graph_edges.find( std::make_pair(vtx_start, vtx_end) );
+            if (_graph_edges.end() != iter_edge_lookup) {
+                _GraphEdge* edge = iter_edge_lookup->second;
+                weight = edge->weight();
+            }
+        }
+
+
+        return weight;
+    }
     //-------------------------------------------------------------------------
     /** Назначает данные ребру
      *
@@ -394,15 +522,35 @@ public:
     }
 
     //-------------------------------------------------------------------------
-    /** Находит радиус графа */
-    PathDescriptor findGraphRadius() {
-        _GraphPath* path_radius = _findGraphRadius();
-
-
-        return _createPathDescriptor(path_radius);
+    /** Доп. операция, выводящая на экран структуру графа (список инцидентных вершин) */
+    void printGraphStructure() {
+        if (0 < _graph_vertexes.size()) {
+        /* Последовательно пройти по всем вершинам графа */
+        typename MapVertexesWithIds::iterator iter_vtxs = _graph_vertexes.begin();
+        for (; _graph_vertexes.end() != iter_vtxs; ++iter_vtxs) {
+            /* Для каждой вершины графа найти все исходящие из нее ребра */
+            _GraphVertex* next_vtx = (*iter_vtxs).second;
+            std::cout << "[" << next_vtx->id() << "] -> ";
+            std::pair<typename MultiMapIncidentVertexes::iterator,
+                    typename MultiMapIncidentVertexes::iterator> incid_vtxs_start_end_bounds =
+                    _graph_incident_vertexes.equal_range(next_vtx);
+            /* Пройти по всей группе записей с ключом next_vtx */
+            typename MultiMapIncidentVertexes::iterator iter_incid_vtxs =
+                    incid_vtxs_start_end_bounds.first;
+            for (; incid_vtxs_start_end_bounds.second != iter_incid_vtxs; ++iter_incid_vtxs) {
+                _GraphVertex* vtx_to = (*iter_incid_vtxs).second;
+                _GraphEdge* edge = _findEdge(next_vtx->id(), vtx_to->id());
+                std::cout << vtx_to->id() << "(" << edge->weight() << "), ";
+            }
+            std::cout << std::endl;
+        }
+        } else {
+            std::cout << "Graph is EMPTY" << std::endl;
+        }
     }
 
     //-------------------------------------------------------------------------
+
     //=========================================================================
 
 private:
@@ -419,155 +567,6 @@ private:
     // Внутренные классы и структуры
 
 
-
-    /** Класс, реализующий поиск кратчайших путей в графе от заданной начальной вершины
-     *
-     * Использует алгоритм Дейкстры */
-    class DjkstraResults {
-      public:
-        static const int DistanceInfinite = INT_MAX;
-
-
-        DjkstraResults(_GraphVertex* vtx_start)
-            : _vtx_start(vtx_start)
-        {
-        }
-
-        //---------------------------------------------------------------------
-        _GraphVertex* vertexStart() const {
-            return _vtx_start;
-        }
-
-        //---------------------------------------------------------------------
-        int pathDistance(_GraphVertex* vtx_to) const;
-
-        //---------------------------------------------------------------------
-        PairDjkstraDistance minDistance() const {
-            typename MapDjkstraDistances::const_iterator iter =
-                    std::min_element(_path_distances.begin(),
-                                     _path_distances.end(),
-                                     compareDjkstraDistances);
-            if (_path_distances.end() != iter) {
-                return (*iter);
-            }
-
-
-            return PairDjkstraDistance(NULL, 0);
-        }
-
-        //---------------------------------------------------------------------
-        PairDjkstraDistance maxDistance() const {
-            typename MapDjkstraDistances::const_iterator iter =
-                    std::max_element(_path_distances.begin(),
-                                     _path_distances.end(),
-                                     compareDjkstraDistances);
-
-            if (_path_distances.end() != iter) {
-                return (*iter);
-            }
-
-
-            return PairDjkstraDistance(NULL, 0);
-        }
-
-        //---------------------------------------------------------------------
-        int setPathDistance(_GraphVertex* vtx_end, int distance) {
-            // Конечная вершина пути должна отличаться от исходной
-            if (vertexStart() != vtx_end) {
-                _path_distances[vtx_end] = distance;
-            }
-
-
-            return NoError;
-        }
-
-        //---------------------------------------------------------------------
-        VertexesPtrList shortestPathVertexesSequence(_GraphVertex* vtx_end) const {
-            VertexesPtrList list_path_vtxs;
-            // Поместить саму конечную вершину пути в конец списка
-            list_path_vtxs.push_back(vtx_end);
-            if(vtx_end) {
-                _GraphVertex* vtx_curr = vtx_end;
-                _GraphVertex* vtx_prev = NULL;
-                while (vtx_prev = _previousPathVertex(vtx_curr)) {
-                    list_path_vtxs.push_front(vtx_prev);
-                    vtx_curr = vtx_prev;
-                }
-            }
-
-
-            return list_path_vtxs;
-        }
-
-        //---------------------------------------------------------------------
-        int setPreLastVertexInPath(_GraphVertex* vtx_end, _GraphVertex* vtx_prev) {
-            _pre_last_path_vertexes[vtx_end] = vtx_prev;
-
-
-            return NoError;
-        }
-
-        //---------------------------------------------------------------------
-        /** Возвращает предшествующую указанной вершину на кратчайшем пути (если он существует) */
-        _GraphVertex* _previousPathVertex(_GraphVertex* vtx_end) const {
-            _GraphVertex* vtx_prev = NULL;
-
-            typename std::map <_GraphVertex*, _GraphVertex* >::const_iterator iter =
-                    _pre_last_path_vertexes.find(vtx_end);
-            if (_pre_last_path_vertexes.end() != iter) {
-                vtx_prev = iter->second;
-            }
-
-
-            return vtx_prev;
-        }
-
-        //---------------------------------------------------------------------
-        bool isEmpty() const {
-            return (vertexStart() == NULL);
-        }
-
-        //---------------------------------------------------------------------
-        /** Возвращает эксцентриситет вершины vtx_start.
-         *
-         * Эксцентриситет - путь с наибольшим весом из всех найденных кратчайших путей */
-
-        //---------------------------------------------------------------------
-        //---------------------------------------------------------------------
-        //---------------------------------------------------------------------
-        /** Функция-компаратор для поиска наименьшего значения метки в процессе работы алгоритма Дейкстры */
-        static bool compareDjkstraDistances(PairDjkstraDistance left, PairDjkstraDistance right) {
-            return left.second < right.second;
-        }
-
-        //---------------------------------------------------------------------
-
-    private:
-        //---------------------------------------------------------------------
-
-        /** Указатель на граф, для которого записаны результаты работы алгоритма */
-        OrientedGraph* _graph;
-
-        /** Начальная вершина, из которой исходят все найденные пути */
-        _GraphVertex* _vtx_start;
-
-        /** Вершины-ключи данного множества являются конечными точками соответствующих
-         * кратчайших путей из вершины vtx_start. Значения, хранящиеся в данном множестве,
-         * представляют предпоследние точки этих кратчайших маршрутов: таким образом,
-         * зная для каждой вершины предшествующую ей на пути вершину, методом последовательного
-         * обхода можно восстановить любой из найденных путей полностью */
-        std::map <_GraphVertex* /* vtx_to */, _GraphVertex* /* vtx_pre_last_in_path */ > _pre_last_path_vertexes;
-
-        /** Числовые метки вершин, каждая из которых представляет
-         * собой сумму весов ребер, образующих кратчайщий путь из
-         * вершины vtx_start к вершине vtx_to, являющейся ключом
-         * множества */
-        MapDjkstraDistances _path_distances;
-    };
-
-    typedef std::map<_GraphVertex* /* vtx_from */,
-    DjkstraResults*> MapVertexesDjkstraResults;
-
     // Закрытые методы класса
 
     //-------------------------------------------------------------------------
@@ -583,108 +582,6 @@ private:
         }
 
         return NULL;
-    }
-
-    //-------------------------------------------------------------------------
-    /** Вычисляет кратчайшие пути в графе от заданной вершины до всех остальных
-     *
-     * Метод следует алгоритму Дейкстры при работе
-     *
-     * @param vtx_start Вершина, с которой будут начинаться все пути */
-    DjkstraResults* _findAllShortestPathsFrom(_GraphVertex *vtx_start) const {
-        DjkstraResults* djkstra_results = new DjkstraResults(vtx_start);
-
-        /* Множество "еще не посещенных" вершин */
-        std::map <_GraphVertex*, int> vtxs_non_visited;
-
-        // Если указанная вершина принадлежит графу
-        if ( _hasVertex( vtx_start ) ) {
-
-            /* Инициализировать список "еще не посещенных" вершин графа и
-             * присвоить каждой вершине метки с числовыми значениями:
-             * 0 - для исходной вершины, бесконечность - для остальных */
-            typename MapVertexesWithIds::const_iterator iter_all_vtxs = _graph_vertexes.begin();
-            for (; iter_all_vtxs != _graph_vertexes.end(); ++iter_all_vtxs) {
-                _GraphVertex* vtx_next = iter_all_vtxs->second;
-                int distance = (vtx_start == vtx_next) ? 0 : DjkstraResults::DistanceInfinite;
-                vtxs_non_visited[vtx_next] = distance;
-//                djkstra_results->setPathDistance(vtx_next, distance);
-            }
-
-
-            /* До тех пор, пока еще остались непосещенные вершины: */
-            while (!vtxs_non_visited.empty()) {
-                /* Взять следующую из непосещенных вершин с наименьшим значением
-                 * числовой метки */
-                typename MapDjkstraDistances::iterator iter_min_dist = vtxs_non_visited.begin();
-                typename MapDjkstraDistances::iterator iter_next_dist = iter_min_dist;
-                ++iter_next_dist;
-                for(; vtxs_non_visited.end() != iter_next_dist; ++iter_next_dist) {
-                    if (iter_next_dist->second < iter_min_dist->second) {
-                        iter_min_dist = iter_next_dist;
-                    }
-                }
-                _GraphVertex* vtx_curr = iter_min_dist->first;
-                int distance_to_vtx_curr = vtxs_non_visited[vtx_curr];
-
-                /* Рассматривать соседей следующей вершины только если
-                 * вершина имеет метку отличную от бесконечности */
-                if (DjkstraResults::DistanceInfinite != distance_to_vtx_curr) {
-                    /* Последовательно пройти всех соседей взятой вершины, вычисляя
-                     * вес нового пути, проходящего через эту вершину как сумму значения
-                     * числовой метки взятой вершины и веса исходящего ребра от этой
-                     * вершины до соседа. */
-                    EdgesPtrList outgoing_edges = _outgoingEdges(vtx_curr);
-                    typename EdgesPtrList::iterator edges_iter = outgoing_edges.begin();
-
-                    // Проходить по списку ребер, выходящих из рассматриваемой вершины
-                    for (; edges_iter != outgoing_edges.end(); ++edges_iter) {
-                        _GraphEdge* next_outgoing_edge = (*edges_iter);
-                        // Получить вершину-соседа, в которую входит ребро
-                        _GraphVertex* vtx_sibling = next_outgoing_edge->vertexEnd();
-
-                        // Если вершина-сосед еще не помечена как посещенная
-                        MapDjkstraDistances::iterator iter_vtx_non_visited =
-                                vtxs_non_visited.find(vtx_sibling);
-                        if (vtxs_non_visited.end() != iter_vtx_non_visited) {
-                            /* Рассчитать новую длину пути к вершине-соседу через
-                             * рассматриваемую вершину как сумму расстояния до
-                             * рассматриваемой вершины и вес(длину) ребра между
-                             * рассматриваемой вершиной и вершиной-соседом. */
-                            int new_distance_calculated = distance_to_vtx_curr + next_outgoing_edge->weight();
-
-                            /* Сравнить полученное расстояние с кратчайшим из известных на данный момент.
-                             *
-                             * Если результат вычислений оказывается меньше
-                             * текущего значения числовой метки соседа, значит только что был
-                             * найден более короткий путь к этому соседу через взятую вершину. */
-                            int current_distance_to_sibling = vtxs_non_visited[vtx_sibling];
-                            if (DjkstraResults::DistanceInfinite == current_distance_to_sibling ||
-                                    new_distance_calculated < current_distance_to_sibling) {
-
-                                /* Отметим взятую вершину как предпоследнюю на пути к этому соседу и
-                                 * присвоим сумму-результат как новое значение числовой метки */
-                                djkstra_results->setPreLastVertexInPath(vtx_sibling, vtx_curr);
-                                vtxs_non_visited[vtx_sibling] = new_distance_calculated;
-                            }
-                        }
-                    }
-                }
-
-                /* После того как все соседи рассматриваемой вершины обработаны,
-                 * отмечаем эту вершину как посещенную */
-                vtxs_non_visited.erase(vtx_curr);
-
-                /* Если метка вершины отлична от бесконечности, сохраним ее значение
-                 * как длину кратчайшего пути до нее */
-                if (DjkstraResults::DistanceInfinite != distance_to_vtx_curr) {
-                    djkstra_results->setPathDistance(vtx_curr, distance_to_vtx_curr);
-                }
-            }
-        }
-
-
-        return djkstra_results;
     }
 
     //-------------------------------------------------------------------------
@@ -717,7 +614,65 @@ private:
     bool _isVertexBelongsToAnyEdge(_GraphVertex* vtx);
 
     //-------------------------------------------------------------------------
-    void _removeAllIncidentEdges(_GraphVertex* vtx);
+    void _removeAllIncidentEdges(_GraphVertex* vtx) {
+        /* Удалить все ребра, исходящие из указанной вершины */
+        /* Выбираем в списке инцидентных вершин те записи, для которых указанная
+         * вершина является исходящей */
+        std::pair<
+                typename MultiMapIncidentVertexes::iterator,
+                typename MultiMapIncidentVertexes::iterator
+                > pair_iters_equal_range = _graph_incident_vertexes.equal_range(vtx);
+        typename MultiMapIncidentVertexes::iterator iter_vtx_start_records = pair_iters_equal_range.first;
+        /* Проходим по найденным парам вершин */
+        for (;
+             iter_vtx_start_records != pair_iters_equal_range.second;
+             ++iter_vtx_start_records)
+        {
+            PairOfVertexes pair_incid_vtxs = (*iter_vtx_start_records);
+            /* Удаляем из графа ребро, соответствующее следующей паре вершин */
+            _GraphEdge* next_outgoing_edge = _graph_edges[pair_incid_vtxs];
+            _graph_edges.erase(pair_incid_vtxs);
+            delete next_outgoing_edge;
+        }
+        /* Стираем пройденные записи из списка инцидентности, которым
+         * соответствует исходящая вершина vtx */
+        _graph_incident_vertexes.erase(vtx);
+
+
+        /* Удалить все ребра, входящие в указанную вершину
+         *
+         * Для этого вновь проходим по списку инцидентных вершин,
+         * теперь проверяя те записи, для которых указанная вершина
+         * является концевой */
+        typename MultiMapIncidentVertexes::iterator iter_lookfor_vtx_end_records = _graph_incident_vertexes.begin();
+        for (; _graph_incident_vertexes.end() != iter_lookfor_vtx_end_records;
+             ++iter_lookfor_vtx_end_records) {
+            PairOfVertexes pair_incid_vtxs = (*iter_lookfor_vtx_end_records);
+            /* Если найдена запись, в которой указанная вершина
+             * является концевой */
+            if (pair_incid_vtxs.second == vtx) {
+                /* Удалить соответствующее ей ребро */
+                _GraphEdge* next_incoming_edge = _graph_edges[pair_incid_vtxs];
+                _graph_edges.erase(pair_incid_vtxs);
+                delete next_incoming_edge;
+
+                /* Стереть запись из списка инцидентности
+                 *
+                 * TODO:
+                 * Дальнейшая работа с итератором после удаления элемента
+                 * может быть некорректной - всё зависит от конкретной
+                 * реализации STL, т.к. подобная ситуация никак не оговорена
+                 * стандартом C++ */
+                _graph_incident_vertexes.erase(iter_lookfor_vtx_end_records);
+            }
+        }
+
+        /* Удалить запись в списке вершин графа */
+        _graph_vertexes.erase(vtx->id());
+
+        /* Освободить память, отведенную под объект-вершину */
+        delete vtx;
+    }
 
     //-------------------------------------------------------------------------
     EdgesPtrList _outgoingEdges(_GraphVertex* vtx_start) const {
@@ -776,170 +731,6 @@ private:
         return false;
     }
 
-    //---------------------------------------------------------------------
-//    bool _hasPath(_GraphPath* path) const {
-//        if(path) {
-//            typename PathsPtrList::iterator iter =
-//                    std::find(_graph_paths.begin(),
-//                              _graph_paths.end(),
-//                              path);
-
-//            return _graph_paths.end() != iter;
-//        }
-
-
-//        return false;
-//    }
-
-    //-------------------------------------------------------------------------
-    DjkstraResults* _cachedDjkstraResults(_GraphVertex* vtx_start) const {
-        DjkstraResults* results = NULL;
-
-        typename MapVertexesDjkstraResults::const_iterator iter_cached_djkstra =
-                __cache__djkstra_results.find(vtx_start);
-        // Если в кэше присутствуют результаты работы алгоритма Дейкстры
-        if (__cache__djkstra_results.end() != iter_cached_djkstra) {
-
-            // Воспользоваться кэшированными резульатами
-            results = iter_cached_djkstra->second;
-        } else {
-            // Получить новые результаты и сохранить их в кэше
-            results = _findAllShortestPathsFrom(vtx_start);
-            __cache__djkstra_results.insert( std::make_pair(vtx_start, results) );
-        }
-
-
-        return results;
-    }
-
-    //-------------------------------------------------------------------------
-    _GraphPath* _findShortestPath(_GraphVertex* vtx_end, DjkstraResults* djkstra_results) const {
-        _GraphPath* path = NULL;
-        VertexesPtrList list_path_vtxs = djkstra_results->shortestPathVertexesSequence(vtx_end);
-        // Если список вершин пути успешно найден и содержит хотя бы одну пару вершин
-        if (1 < list_path_vtxs.size()) {
-            path = new _GraphPath();
-            _GraphVertex* next_vtx_from = list_path_vtxs.front();
-            list_path_vtxs.pop_front();
-            _GraphVertex* next_vtx_to = NULL;
-            /* Последовательно проходя пары следующих друг за другом вершин
-             * добавлять объекты-ребра к пути */
-            while (!list_path_vtxs.empty()) {
-                next_vtx_to = list_path_vtxs.front();
-                list_path_vtxs.pop_front();
-                _GraphEdge* edge = _findEdge(next_vtx_from->id(), next_vtx_to->id());
-                path->edges.push_back(edge);
-
-                next_vtx_from = next_vtx_to;
-            }
-        }
-
-        return path;
-    }
-
-    //---------------------------------------------------------------------
-    _GraphPath* _findShortestPath(_GraphVertex* vtx_start, _GraphVertex* vtx_end) const {
-        DjkstraResults* djkstra_results = _cachedDjkstraResults(vtx_start);
-
-        return _findShortestPath(vtx_end, djkstra_results);
-    }
-
-    //---------------------------------------------------------------------
-//    /** Продолжает путь, добавляя в его конец указанное ребро */
-//    ErrorCode _appendEdgeToPath(_GraphEdge* edge, _GraphPath* path) {
-//        // Если указатнль на объект - не NULL,
-//        if (path &&
-//                // путь принадлежит графу,
-//                _hasPath(path) &&
-//                // и ребро принадлежит графу
-//                _hasEdge(edge) ) {
-
-//            // Если путь еще не содержит ребер
-//            if (path->isEmpty() ||
-//                    /* или ребро выходит из вершины, которая является концом пути */
-//                    path->vertexEnd() == edge->vertexStart() ) {
-//                // Продолжить путь по ребру
-//                path->edges.push_back(edge);
-//            }
-//        }
-
-
-//        return NoError;
-//    }
-
-    //-------------------------------------------------------------------------
-//    /** Присоединяет ребро к началу пути
-//     *
-//     * После присоединения путь будет иметь начало в вершине, из которой
-//     * выходит ребро и, пройдя по нему, продолжится по ранее существовавшему
-//     * маршруту */
-//    ErrorCode _prependEdgeToPath(_GraphEdge* edge, _GraphPath* path) {
-//        // Если указатнль на объект - не NULL,
-//        if (path &&
-//                // путь принадлежит графу,
-//                _hasPath(path) &&
-//                // и ребро принадлежит графу
-//                _hasEdge(edge) ) {
-
-//            // Если путь еще не содержит ребер
-//            if (path->isEmpty() ||
-//                    /* или путь начинается из вершины, в которую входит ребро */
-//                    path->vertexStart() == edge->vertexEnd()) {
-//                // Присоединить ребро к началу пути
-//                path->edges.push_front(edge);
-//            }
-//        }
-
-
-//        return NoError;
-//    }
-
-    //-------------------------------------------------------------------------
-    _GraphPath* _findGraphRadius() const {
-        /* Список эксцентриситетов для всех последовательно рассматриваемых вершин */
-        std::list <_GraphPath*> eccentricities;
-
-        /* Для каждой вершины графа найти все кратчайшие пути от нее
-         * до остальных вершин графа по алгоритму Дейкстры */
-        DjkstraResults* djkstra_results = NULL;
-        typename MapVertexesWithIds::const_iterator iter_all_vtxs = _graph_vertexes.begin();
-        for (; iter_all_vtxs != _graph_vertexes.end(); ++iter_all_vtxs) {
-            _GraphVertex* next_vtx_start = iter_all_vtxs->second;
-            djkstra_results = _cachedDjkstraResults(next_vtx_start);
-            /* Из каждого списка кратчайших путей выделить эксцентриситет - самый
-             * длинный путь */
-            _GraphPath* next_eccentricity = _getEccentricity( djkstra_results->vertexStart() );
-            /* Рассматриваемая вершина может и не иметь исходящих ребер -
-             * в этом случае из нее не может быть построено ни одного
-             * пути, поэтому запрос эксцентриситета вернет NULL-указатель */
-            if (next_eccentricity) {
-                eccentricities.push_back(next_eccentricity);
-            }
-        }
-
-        /* Из всех эксцентриситетов выбрать кратчайший - это и есть
-         * искомый радиус графа */
-        typename PathsPtrList::iterator iter_graph_radius =
-                std::min_element(eccentricities.begin(), eccentricities.end(), comparePathWeights);
-        _GraphPath* graph_radius = NULL;
-        if (eccentricities.end() != iter_graph_radius) {
-            graph_radius = (*iter_graph_radius);
-        }
-
-        /* Освободить память от ненужных объектов, предварительно
-         * удалив из списка указатель на объект-радиус во избежание его уничтожения */
-        eccentricities.erase(iter_graph_radius);
-        while (!eccentricities.empty()) {
-            _GraphPath* path = eccentricities.front();
-            eccentricities.pop_front();
-
-            delete path;
-        }
-
-
-        return graph_radius;
-    }
-
     //-------------------------------------------------------------------------
     PathDescriptor _createPathDescriptor(_GraphPath* path) {
         PathDescriptor descriptor;
@@ -947,7 +738,7 @@ private:
         if (path && !path->isEmpty()) {
             // Составить список из идентификаторов его последовательных вершин
             descriptor.path_vertexes.push_back(path->vertexStart()->id());
-            EdgesPtrList::iterator iter_path_edges = path->edges.begin();
+            typename EdgesPtrList::iterator iter_path_edges = path->edges.begin();
             for (; path->edges.end() != iter_path_edges; ++iter_path_edges) {
                 _GraphEdge* next_edge = (*iter_path_edges);
                 descriptor.path_vertexes.push_back( next_edge->vertexEnd()->id() );
@@ -959,30 +750,6 @@ private:
 
 
         return descriptor;
-    }
-
-    //-------------------------------------------------------------------------
-    /** Возвращает эксцентриситет вершины
-     *
-     * Эксцентриситет - максимальное расстояние из всех кратчайших расстояний
-     * от данной вершины до других вершин графа.
-     * @param vtx_start Исходная вершина */
-    _GraphPath* _getEccentricity(_GraphVertex* vtx_start) const {
-        _GraphPath* path = NULL;
-        if(vtx_start) {
-            // Получить список кратчайших путей (результаты работы алгоритма Дейкстры)
-            DjkstraResults* djkstra_results = _cachedDjkstraResults(vtx_start);
-            if (djkstra_results &&
-                    !djkstra_results->isEmpty()) {
-                // Найти максимальное расстояние
-                PairDjkstraDistance pair_max_distance = djkstra_results->maxDistance();
-                // Найти кратчайший путь, соответствующий этому расстоянию
-                _GraphVertex* vtx_path_end = pair_max_distance.first;
-                path = _findShortestPath(vtx_path_end, djkstra_results);
-            }
-        }
-
-        return path;
     }
 
     //-------------------------------------------------------------------------
@@ -1027,13 +794,602 @@ private:
      * Тип значения - Ребро ( Edge* ) */
     MapVertexesEdges _graph_edges;
 
-    /** Переменная для хранения кэшированных результатов работы
-     * алгоритма Дейкстры */
-    mutable MapVertexesDjkstraResults __cache__djkstra_results;
-
     VertexID _next_vacant_vtx_id;
 
 
 };
+
+
+//*****************************************************************************
+/** Часть консольной программы симулятора, моделирующая работу алгоритма Дейстры для всего графа
+ *
+ * Работа симулятора состоит в последовательном запуске алгоритма Дейкстры
+ * для каждой из вершин графа с целью поиска всех кратчайших маршрутов между
+ * всеми вершинами графа. */
+template <class TData = int>
+class DjkstraGraphSimulator {
+public:
+    DjkstraGraphSimulator( const OrientedGraph<TData> * graph )
+        : _graph(graph)
+    {}
+
+    //-------------------------------------------------------------------------
+    void run() {
+        CLEAR_SCREEN();
+
+        if (!_graph->isEmpty()) {
+            std::list< typename OrientedGraph<TData>::PathDescriptor > eccentricities_list;
+
+            typename OrientedGraph<TData>::VertexesList all_vtxs = _graph->vertexes();
+            typename OrientedGraph<TData>::VertexesList::iterator iter_all_vtxs = all_vtxs.begin();
+            /* Последовательно запускать алгоритм Декйкстры для каждой вершины графа,
+             * запоминая  найденные эксцентриситеты */
+            for (; all_vtxs.end() != iter_all_vtxs; ++iter_all_vtxs) {
+                typename OrientedGraph<TData>::VertexID next_vid = (*iter_all_vtxs);
+                VertexSimulator vertex_simulator(_graph, next_vid);
+                vertex_simulator.run();
+
+                /* Отобразить промежуточные результаты для очередной вершины */
+                typename OrientedGraph<TData>::PathDescriptor next_eccentricity =
+                        vertex_simulator.getEccentricity();
+                if (!next_eccentricity.isEmpty()) {
+                    /* Запомнить найденный эксцентриситет */
+                    eccentricities_list.push_back(next_eccentricity);
+                    std::cout << "Next eccentricity: "
+                              << std::endl;
+                    next_eccentricity.print();
+                    std::cout << std::endl;
+                    PAUSE();
+                }
+                /* Если не найдено ни одного пути из вершины */
+                else {
+                    CLEAR_SCREEN();
+                    std::cout << "No routes found from vertex [" << next_vid << "]"
+                              << std::endl;
+                    PAUSE();
+                }
+            }
+
+            /* Наименьший эксцентриситет в графе - его радиус */
+            typename std::list<typename OrientedGraph<TData>::PathDescriptor>::iterator
+                    iter_eccentricities = eccentricities_list.begin();
+            typename OrientedGraph<TData>::PathDescriptor radius;
+            for (; eccentricities_list.end() != iter_eccentricities; ++iter_eccentricities) {
+                typename OrientedGraph<TData>::PathDescriptor next_eccentricity = (*iter_eccentricities);
+                if (radius.isEmpty() ||
+                        next_eccentricity.weight < radius.weight) {
+                    radius = next_eccentricity;
+                }
+            }
+
+            CLEAR_SCREEN();
+            std::cout << "Finished. Graph radius: "
+                      << std::endl;
+            radius.print();
+            std::cout << std::endl;
+        } else {
+            std::cout << "Graph is EMPTY" << std::endl;
+        }
+
+        PAUSE();
+    }
+
+    //-------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
+
+
+private:
+    /*****************************************************************************/
+    /** Часть консольной программы симулятора, моделирующая работу алгоритма Дейстры для конкретной исходной вершины */
+    class VertexSimulator {
+
+        static const unsigned int Infinite = INT_MAX;
+
+
+    public:
+        VertexSimulator( const OrientedGraph<TData> * graph,
+                                            typename OrientedGraph<TData>::VertexID start_vertex_id )
+            : _graph(graph),
+              _vtx_start_id(start_vertex_id),
+              _is_finished(false),
+              _last_changed_vertex(0)
+        {
+            _reset();
+        }
+
+        //-------------------------------------------------------------------------
+        bool isFinished() const {
+            return _is_finished;
+        }
+
+        //-------------------------------------------------------------------------
+        void run() {
+            while(!isFinished()) {
+                _displayStats();
+                getchar();
+                _stepOver();
+            }
+        }
+        //-------------------------------------------------------------------------
+        /** Возвращает путь с наибольшей длиной */
+        typename OrientedGraph<TData>::PathDescriptor getEccentricity() const {
+            typename OrientedGraph<TData>::PathDescriptor path;
+            /* Если выполнение алгоритма было завершено */
+            if (isFinished()) {
+                /* Если из исходной вершины найден хотя бы один путь,
+                 * список завершенных вершин будет содержать как минимум
+                 * две вершины.
+                 * В противном случае исходная вершина будет единственной
+                 * посещенной. */
+                if (1 < _vtxs_completed.size()) {
+                    Distance dist_max = 0;
+                    typename OrientedGraph<TData>::VertexID vtx_maxdist = 0;
+                    typename MapDjkstraVertexes::const_iterator iter_end_vtxs = _vtxs_completed.begin();
+                    /* Найти вершину с наибольшим расстоянием до нее */
+                    for (; _vtxs_completed.end() != iter_end_vtxs; ++iter_end_vtxs) {
+                        Distance next_dist = (*iter_end_vtxs).second;
+                        if (dist_max < next_dist) {
+                            dist_max = next_dist;
+                            vtx_maxdist = (*iter_end_vtxs).first;
+                        }
+                    }
+                    path.weight = dist_max;
+
+                    /* Выстроить маршрут до найденной вершины */
+                    typename OrientedGraph<TData>::VertexID vtx_end = vtx_maxdist;
+                    path.prependVertex(vtx_end);
+                    /* Перейти к последней вершине пути */
+                    typename MapPathBreadcrumbs::const_iterator iter_path_breadcrumbs = _path_breadcrumbs.find(vtx_end);
+                    /* Двигаться последовательно от последней вершины к предыдущим,
+                     * пока не встретится исходная */
+                    while(_path_breadcrumbs.end() != iter_path_breadcrumbs) {
+                        typename OrientedGraph<TData>::VertexID vtx_prev = (*iter_path_breadcrumbs).second;
+                        path.prependVertex(vtx_prev);
+                        /* Перейти к предыдущей вершине в пути */
+                        iter_path_breadcrumbs = _path_breadcrumbs.find(vtx_prev);
+                    }
+                }
+            }
+
+
+            return path;
+        }
+
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+
+
+    private:
+        typedef unsigned int Distance;
+        typedef std::map <typename OrientedGraph<TData>::VertexID /* ID вершины */,
+            Distance /* значение числовой метки */>
+            MapDjkstraVertexes;
+
+
+        const OrientedGraph<TData> * _graph;
+
+        /** ID исходной вершины, от которой строятся кратчайшие маршруты */
+        typename OrientedGraph<TData>::VertexID _vtx_start_id;
+
+        /** Множество "еще не посещенных" вершин */
+         MapDjkstraVertexes _vtxs_non_visited;
+
+        /** Множество посещенных вершин
+         *
+         * В этот список вершины попадают после того, как до них
+         * окончательно найден кратчайший путь */
+        MapDjkstraVertexes _vtxs_completed;
+
+        typedef std::map < typename OrientedGraph<TData>::VertexID /* vtx_to */,
+            typename OrientedGraph<TData>::VertexID /* vtx_previous */ >
+            MapPathBreadcrumbs;
+        /** Вершины-ключи данного множества являются конечными точками соответствующих
+         * кратчайших путей из вершины vtx_start. Значения, хранящиеся в данном множестве,
+         * представляют предпоследние точки этих кратчайших маршрутов: таким образом,
+         * зная для каждой вершины предшествующую ей на пути вершину, методом последовательного
+         * обхода можно восстановить любой из найденных путей полностью */
+         MapPathBreadcrumbs _path_breadcrumbs;
+
+
+        /** Вершина, посещаемая на текущем шаге алгоритма */
+        typename OrientedGraph<TData>::VertexID _curr_step_vertex;
+
+
+        /** Вершины-соседи, в которые идут ребра из рассматриваемой на текущем шаге
+         * алгоритма вершины */
+        typename OrientedGraph<TData>::VertexesList _curr_sibling_vertexes;
+
+
+        /** Флаг-индикатор завершения работы алгоритма */
+        bool _is_finished;
+
+
+        /** Левый отступ для выводимого текста в консоли */
+        unsigned int _output_left_margin;
+
+
+        /** ID вершины, затронутой последним шагом алгоритма.
+         *
+         * Данная информация может быть удобна для визуального
+         * выделения последней измененной вершины на экране. */
+        typename OrientedGraph<TData>::VertexID _last_changed_vertex;
+
+
+        std::stack<WORD> _console_text_attributes;
+
+
+        //-------------------------------------------------------------------------
+        /** Переводит алгоритм к следующему шагу
+         *
+         * Каждый шаг программы - это либо переход к следующей непосещенной вершине,
+         * либо попытка вычисления новой метки для очередной вершины-соседа текущей
+         * посещаемой вершины */
+        void _stepOver() {
+            /* Если еще остались непросмотренные соседи текущей вершины */
+            if ( _nextSiblingVertex() ) {
+                /* Взять следующюю вершину-соседа */
+                typename OrientedGraph<TData>::VertexID vtxid_next_sibling = _takeNextSiblingVertex();
+
+                /* Рассчитать длину пути до вершины-соседа через текущую вершину */
+                Distance curr_distance_to_sibling = _vtxs_non_visited[vtxid_next_sibling];
+                typename OrientedGraph<TData>::EdgeWeight edge_weight = _graph->edgeWeight(_curr_step_vertex, vtxid_next_sibling);
+                Distance new_distance_to_sibling = _vtxs_non_visited[_curr_step_vertex] + edge_weight;
+                /* Если длина пути меньше, запомнить новый маршрут */
+                if (new_distance_to_sibling < curr_distance_to_sibling) {
+                    _vtxs_non_visited[vtxid_next_sibling] = new_distance_to_sibling;
+                    this->_path_breadcrumbs[vtxid_next_sibling] = _curr_step_vertex;
+                }
+
+                _last_changed_vertex = vtxid_next_sibling;
+            }
+            /* Перейти к следующей вершине */
+            else {
+                /* Пометить текущую вершину как посещенную, запомнив длину пути до нее */
+                Distance distance = _vtxs_non_visited[_curr_step_vertex];
+                _vtxs_non_visited.erase(_curr_step_vertex);
+                _vtxs_completed.insert( std::make_pair(_curr_step_vertex, distance) );
+                _last_changed_vertex = _curr_step_vertex;
+
+                /* Если еще остались непосещенные вершины */
+                if ( !_vtxs_non_visited.empty() ) {
+                    /* Найти следующую вершину с наименьшим расстоянием до нее */
+                    Distance min_dist = Infinite;
+                    typename OrientedGraph<TData>::VertexID next_vtxid = 0;
+                    typename MapDjkstraVertexes::iterator iter_vtxs = _vtxs_non_visited.begin();
+                    for (; _vtxs_non_visited.end() != iter_vtxs; ++iter_vtxs) {
+                        typename OrientedGraph<TData>::VertexID vid_next = (*iter_vtxs).first;
+                        Distance dist_next = (*iter_vtxs).second;
+                        if (dist_next < min_dist) {
+                            min_dist = dist_next;
+                            next_vtxid = vid_next;
+                        }
+                    }
+                    /* Если найдена вершина с меткой, отличной от бесконечности */
+                    if (next_vtxid) {
+                        /* Перейти к рассмотрению найденной вершины и её соседей */
+                        _curr_step_vertex = next_vtxid;
+                        /* Выбрать для обработки те вершины, которые еще не были посещены */
+                        typename OrientedGraph<TData>::VertexesList siblings = _graph->vertexOutSiblings(_curr_step_vertex);
+                        typename OrientedGraph<TData>::VertexesList::iterator iter_siblings = siblings.begin();
+                        for (; siblings.end() != iter_siblings; ++iter_siblings) {
+                            typename OrientedGraph<TData>::VertexID vtxid_next_sibling = (*iter_siblings);
+                            typename MapDjkstraVertexes::iterator iter_vtx_visited_lookup =
+                                    _vtxs_completed.find(vtxid_next_sibling);
+                            /* Если до этой вершины еще не было найдено кратчайшего пути
+                         * (она еще не отмечена посещенной) */
+                            if ( _vtxs_completed.end() == iter_vtx_visited_lookup ) {
+                                _curr_sibling_vertexes.push_back(vtxid_next_sibling);
+                            }
+                        }
+                    }
+                    /* Иначе до оставшихся вершин больше не существует маршрутов
+                     * из исходной вершины. Алгоритм завершен. */
+                    else {
+                        _is_finished = true;
+                    }
+                }
+                /* Иначе алгоритм завершен */
+                else {
+                    _is_finished = true;
+                }
+            }
+        }
+
+        //-------------------------------------------------------------------------
+        void _continueTillEnd() {
+            while (!isFinished()) {
+                _stepOver();
+            }
+        }
+
+        //-------------------------------------------------------------------------
+        unsigned int _leftMarginForConsoleOutput() const {
+            return _output_left_margin;
+        }
+
+        //-------------------------------------------------------------------------
+        void _setLeftMarginForConsoleOutput(unsigned int x) {
+            _output_left_margin = x;
+        }
+
+        //-------------------------------------------------------------------------
+        void _setConsoleTextAttributes(WORD attributes) {
+            HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+            CONSOLE_SCREEN_BUFFER_INFO scr_buff_info;
+            GetConsoleScreenBufferInfo(hConsole, &scr_buff_info);
+            /* Сохранить предыдущие значения атрибутов */
+            _console_text_attributes.push(scr_buff_info.wAttributes);
+
+            /* Установить заданные атрибуты */
+            SetConsoleTextAttribute(hConsole, attributes);
+        }
+
+        //-------------------------------------------------------------------------
+        void _restoreConsoleTextAttributes() {
+            HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+            SetConsoleTextAttribute(hConsole, _console_text_attributes.top());
+            _console_text_attributes.pop();
+        }
+
+        //-------------------------------------------------------------------------
+        void _gotoNextConsoleLine() {
+            HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+            CONSOLE_SCREEN_BUFFER_INFO scr_buff_info;
+            GetConsoleScreenBufferInfo(hConsole, &scr_buff_info);
+            COORD cursor_pos = scr_buff_info.dwCursorPosition;
+            cursor_pos.X = _leftMarginForConsoleOutput();
+            cursor_pos.Y += 1;
+
+            SetConsoleCursorPosition(hConsole, cursor_pos);
+        }
+
+        //-------------------------------------------------------------------------
+        void __printDistance(Distance dist) {
+            if (Infinite == dist) {
+                std::cout << "INF";
+            } else { std::cout << dist; }
+        }
+        //-------------------------------------------------------------------------
+        void __printFormattedVertexWithDistance(typename OrientedGraph<TData>::VertexID vid,
+                                                Distance dist) {
+            /* Визуально выделить вершину, затронутую последним шагом алгоритма */
+            if (vid == _last_changed_vertex) {
+                _setConsoleTextAttributes(__textAttributesForLastChangedVertex());
+            }
+
+            std::cout << std::setw(3)
+                      << std::setfill(' ')
+                      << std::setiosflags(std::ios::right)
+                      << vid << " [ ";
+            __printDistance(dist);
+            std::cout << " ] ";
+
+            if (vid == _last_changed_vertex) {
+                _restoreConsoleTextAttributes();
+            }
+        }
+
+        //-------------------------------------------------------------------------
+        void __displayVertexesList() {
+            /* Вывести сперва список непосещенных вершин */
+            typename MapDjkstraVertexes::const_iterator iter_graph_vtxs =
+                    _vtxs_non_visited.begin();
+            for (; _vtxs_non_visited.end() != iter_graph_vtxs; ++iter_graph_vtxs) {
+                typename OrientedGraph<TData>::VertexID vid = (*iter_graph_vtxs).first;
+                Distance dist = (*iter_graph_vtxs).second;
+                __printFormattedVertexWithDistance(vid, dist);
+                _gotoNextConsoleLine();
+            }
+            std::cout << "--visited:--";
+            _gotoNextConsoleLine();
+
+            /* Затем вывести список посещенных вершин */
+            _setConsoleTextAttributes(__textAttributesForVisitedVertex());
+            iter_graph_vtxs = _vtxs_completed.begin();
+            for (; _vtxs_completed.end() != iter_graph_vtxs; ++iter_graph_vtxs) {
+                typename OrientedGraph<TData>::VertexID vid = (*iter_graph_vtxs).first;
+                Distance dist = (*iter_graph_vtxs).second;
+                __printFormattedVertexWithDistance(vid, dist);
+                _gotoNextConsoleLine();
+            }
+            _restoreConsoleTextAttributes();
+        }
+
+        //-------------------------------------------------------------------------
+        void __displayCurrentVertexSiblings() {
+            std::cout << "CURRENT VERTEX: " << _curr_step_vertex;
+            _gotoNextConsoleLine();
+            std::cout << "SIBLINGS: ";
+            _gotoNextConsoleLine();
+            typename OrientedGraph<TData>::VertexID next_vid = _nextSiblingVertex();
+            typename OrientedGraph<TData>::VertexesList::iterator iter_siblings =
+                    _curr_sibling_vertexes.begin();
+            for (; _curr_sibling_vertexes.end() != iter_siblings; ++iter_siblings) {
+                typename OrientedGraph<TData>::VertexID vid = (*iter_siblings);
+                Distance dist = _vtxs_non_visited[vid];
+                /* Визуально пометить вершину, которая будет обработана следующей */
+                if (next_vid == vid) {
+                    std::cout << "->";
+                }
+                __printFormattedVertexWithDistance(vid, dist);
+                _gotoNextConsoleLine();
+            }
+        }
+
+        //-------------------------------------------------------------------------
+        void __displayProposedAction() {
+            typename OrientedGraph<TData>::VertexID next_vid = _nextSiblingVertex();
+            if (next_vid) {
+                Distance curr_dist = _vtxs_non_visited[next_vid];
+                Distance new_dist = _vtxs_non_visited[_curr_step_vertex] +
+                        _graph->edgeWeight(_curr_step_vertex, next_vid);
+
+                std::cout << "Current distance to [" << next_vid << "] is ";
+                __printDistance(curr_dist);
+                _gotoNextConsoleLine();
+                std::cout << "Distance through [" << next_vid << "] is ";
+                __printDistance(new_dist);
+            } else {
+                std::cout << "Done with [" << _curr_step_vertex << "]";
+            }
+            _gotoNextConsoleLine();
+        }
+        //-------------------------------------------------------------------------
+        void _displayStats() {
+            CLEAR_SCREEN();
+            HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+
+            /* Вывести список вершин графа и текущих расстояний до них */
+            COORD firstColULCornerCoord = _s_cFirstColumnULCornerCoord();
+            SetConsoleCursorPosition(hConsole, firstColULCornerCoord);
+            _setLeftMarginForConsoleOutput(firstColULCornerCoord.X);
+            __displayVertexesList();
+
+
+            /* Вывести текущую вершину и список ее соседей,
+             * которые еще не обработаны алгоритмом */
+            COORD secondColULCornerCoord = _s_cSecondColumnULCornerCoord();
+            SetConsoleCursorPosition(hConsole, secondColULCornerCoord);
+            _setLeftMarginForConsoleOutput(secondColULCornerCoord.X);
+            __displayCurrentVertexSiblings();
+
+
+            /* Вывести информацию о следующей вершине,
+             * которая будет обработана алгоритмом */
+            COORD thirdColULCornerCoord = _s_cThirdColumnULCornerCoord();
+            SetConsoleCursorPosition(hConsole, thirdColULCornerCoord);
+            _setLeftMarginForConsoleOutput(thirdColULCornerCoord.X);
+            __displayProposedAction();
+        }
+        //-------------------------------------------------------------------------
+        /** Возвращает ход алгоритма к начальному шагу */
+        void _reset() {
+            /* Очистить список найденных маршрутов */
+            _path_breadcrumbs.clear();
+
+            /* Пометить все вершины графа как непосещенные,
+             * присвоив им числовые метки, равные бесконечности;
+             * стартовой вершине назначить метку 0. */
+            _vtxs_completed.clear();
+            _vtxs_non_visited.clear();
+            _vtxs_non_visited.insert( std::make_pair(_vtx_start_id, 0) );
+            typename OrientedGraph<TData>::VertexesList all_vertexes = _graph->vertexes();
+            typename OrientedGraph<TData>::VertexesList::iterator iter_vtxs = all_vertexes.begin();
+            /* Назначить всем вершинам метки "бесконечность", кроме стартовой */
+            for (; all_vertexes.end() != iter_vtxs; ++iter_vtxs) {
+                typename OrientedGraph<TData>::VertexID vid = (*iter_vtxs);
+                if (vid != _vtx_start_id) {
+                    _vtxs_non_visited[vid] = Infinite;
+                }
+            }
+
+            /* Назначить текущей вершиной шага стартовую вершину
+             * и подготовить список осматриваемых вершин-соседей. */
+            _curr_step_vertex = _vtx_start_id;
+            _curr_sibling_vertexes.clear();
+            _curr_sibling_vertexes = _graph->vertexOutSiblings(_vtx_start_id);
+
+            /* Сбросить флаг завершенности алгоритма */
+            _is_finished = false;
+        }
+
+        //-------------------------------------------------------------------------
+        /** Возвращает ID вершины, которая будет обработана на следующем шаге алгоритма
+         *
+         * Если вершин-соседей для обработки не осталось, вернет 0. */
+        typename OrientedGraph<TData>::VertexID _nextSiblingVertex() const {
+            typename OrientedGraph<TData>::VertexID next_vtx = 0;
+            if (!_curr_sibling_vertexes.empty()) {
+                next_vtx = _curr_sibling_vertexes.front();
+            }
+
+
+            return next_vtx;
+        }
+
+        //-------------------------------------------------------------------------
+        /** Возвращает ID следующей по порядку вершины-соседа с удалением её из списка */
+        typename OrientedGraph<TData>::VertexID _takeNextSiblingVertex() {
+            typename OrientedGraph<TData>::VertexID next_vid = _nextSiblingVertex();
+            if(next_vid) {
+                _curr_sibling_vertexes.pop_front();
+            }
+
+
+            return next_vid;
+        }
+
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+        /** Возвращает координаты левого верхнего угла первой колонки вывода в консоли */
+        static COORD _s_cFirstColumnULCornerCoord() {
+            COORD coord;
+            coord.X = 1;
+            coord.Y = 1;
+
+
+            return coord;
+        }
+
+        //-------------------------------------------------------------------------
+        /** Возвращает координаты левого верхнего угла второй колонки вывода в консоли */
+        static COORD _s_cSecondColumnULCornerCoord() {
+            COORD coord;
+            coord.X = 17;
+            coord.Y = 1;
+
+
+            return coord;
+        }
+
+        //-------------------------------------------------------------------------
+        /** Возвращает координаты левого верхнего угла третьей колонки вывода в консоли */
+        static COORD _s_cThirdColumnULCornerCoord() {
+            COORD coord;
+            coord.X = 40;
+            coord.Y = 1;
+
+
+            return coord;
+        }
+
+        //-------------------------------------------------------------------------
+        static WORD __textAttributesForLastChangedVertex() {
+            /* Ярко-жёлтый текст */
+            return 6 | FOREGROUND_INTENSITY;
+        }
+
+        //-------------------------------------------------------------------------
+        static WORD __textAttributesForVisitedVertex() {
+            /* Серый текст */
+            return FOREGROUND_INTENSITY;
+        }
+
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+        //-------------------------------------------------------------------------
+    };
+
+
+    const OrientedGraph<TData> * _graph;
+};
+
+
+
 
 #endif // ORIENTEDGRAPH_H
