@@ -212,11 +212,15 @@ public:
 
         //---------------------------------------------------------------------
         void print() const {
-            VertexesList::const_iterator iter = path_vertexes.begin();
-            std::cout << "[" << (*iter) << "]";
-            ++iter;
-            for (; path_vertexes.end() != iter; ++iter) {
-                std::cout << "->[" << (*iter) << "]";
+            if (!isEmpty()) {
+                VertexesList::const_iterator iter = path_vertexes.begin();
+                std::cout << "[" << (*iter) << "]";
+                ++iter;
+                for (; path_vertexes.end() != iter; ++iter) {
+                    std::cout << "->[" << (*iter) << "]";
+                }
+            } else {
+                std::cout << "[EMPTY PATH]";
             }
         }
 
@@ -446,6 +450,16 @@ public:
      * @param vtx_id_end Идентификатор конечной вершины */
     bool hasEdge(VertexID vtx_id_start, VertexID vtx_id_end) const {
         return ( _findEdge(vtx_id_start, vtx_id_end) != NULL );
+    }
+
+    //-------------------------------------------------------------------------
+    /** Возвращает true, если граф имеет хотя бы одно ребро
+     *
+     * Поскольку ребра не существуют в графе без вершин,
+     * наличие ребер в нем также означает, что граф не
+     * пустой. */
+    bool hasAnyEdges() const {
+        return (!_graph_edges.empty());
     }
 
     //-------------------------------------------------------------------------
@@ -817,7 +831,7 @@ public:
     void run() {
         CLEAR_SCREEN();
 
-        if (!_graph->isEmpty()) {
+        if (_graph->hasAnyEdges()) {
             std::list< typename OrientedGraph<TData>::PathDescriptor > eccentricities_list;
 
             typename OrientedGraph<TData>::VertexesList all_vtxs = _graph->vertexes();
@@ -863,12 +877,17 @@ public:
             }
 
             CLEAR_SCREEN();
-            std::cout << "Finished. Graph radius: "
-                      << std::endl;
-            radius.print();
-            std::cout << std::endl;
+            if (!radius.isEmpty()) {
+                std::cout << "Finished. Graph radius: "
+                          << std::endl;
+                radius.print();
+                std::cout << std::endl;
+            } else {
+                std::cout << "No paths were found in graph."
+                          << std::endl;
+            }
         } else {
-            std::cout << "Graph is EMPTY" << std::endl;
+            std::cout << "Graph has no edges. No paths could be found." << std::endl;
         }
 
         PAUSE();
