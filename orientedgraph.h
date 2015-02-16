@@ -219,9 +219,13 @@ public:
                 for (; path_vertexes.end() != iter; ++iter) {
                     std::cout << "->[" << (*iter) << "]";
                 }
+
+                std::cout << ",  Weight=(" << weight << ")";
             } else {
                 std::cout << "[EMPTY PATH]";
             }
+
+            std::cout << std::endl;
         }
 
         //---------------------------------------------------------------------
